@@ -1,0 +1,89 @@
+function processItems(items) {
+    const MAX_MESSAGES = 3; // Máximo de mensajes permitidos
+    const MIN_LENGTH = 50; // Longitud mínima para considerar un fragmento como mensaje independiente
+
+    return items.map(item => {
+        const generatedText = item.json.output.trim(); // Limpia espacios innecesarios
+        let chunks = [generatedText];
+
+        // Normaliza saltos de línea y divide en fragmentos
+        if (generatedText.includes('\n\n')) {
+            chunks = generatedText.replace(/\n{3,}/g, '\n\n').split('\n\n');
+        }
+
+        // Filtra fragmentos vacíos
+        chunks = chunks.filter(chunk => chunk.trim() !== '');
+
+        let processedChunks = [];
+        let messageCount = 0;
+        let buffer = "";
+
+        for (let chunk of chunks) {
+            chunk = chunk.trim();
+
+            // Permitir URLs e imágenes como excepción
+            if (chunk.match(/\.(png|jpg|jpeg)$/i) || chunk.startsWith("http")) {
+                processedChunks.push({ type: "text", content: chunk });
+                continue; // No afecta el límite de mensajes
+            }
+
+            // Si el fragmento es muy corto, agrégalo al buffer en lugar de separarlo
+            if (chunk.length < MIN_LENGTH && !chunk.endsWith("?")) {
+                buffer += (buffer ? " " : "") + chunk;
+                continue;
+            }
+
+            // Si hay contenido en buffer, agrégalo al último mensaje
+            if (buffer) {
+                if (processedChunks.length > 0) {
+                    processedChunks[processedChunks.length - 1].content += " " + buffer;
+                } else {
+                    processedChunks.push({ type: "text", content: buffer });
+                }
+                buffer = ""; // Reiniciar buffer
+            }
+
+            // Si el fragmento termina en '?', forzar un nuevo mensaje
+            if (chunk.endsWith("?")) {
+                processedChunks.push({ type: "text", content: chunk });
+                continue;
+            }
+
+            // Si aún no hemos alcanzado MAX_MESSAGES, agregamos como mensaje separado
+            if (messageCount < MAX_MESSAGES - 1) {
+                processedChunks.push({ type: "text", content: chunk });
+                messageCount++;
+            } else {
+                // Si ya se alcanzó MAX_MESSAGES, fusionamos el resto en el último mensaje
+                if (processedChunks.length > 0) {
+                    processedChunks[processedChunks.length - 1].content += "\n\n" + chunk;
+                } else {
+                    buffer += (buffer ? "\n\n" : "") + chunk;
+                }
+            }
+        }
+
+        // Si quedó algo en buffer, lo añadimos al último mensaje
+        if (buffer) {
+            if (processedChunks.length > 0) {
+                processedChunks[processedChunks.length - 1].content += "\n\n" + buffer;
+            } else {
+                processedChunks.push({ type: "text", content: buffer });
+            }
+        }
+
+        // Asegurar que el número total de mensajes sea máximo MAX_MESSAGES
+        while (processedChunks.length > MAX_MESSAGES) {
+            let extraChunk = processedChunks.pop();
+            processedChunks[processedChunks.length - 1].content += "\n\n" + extraChunk.content;
+        }
+
+        return {
+            json: {
+                processedOutput: processedChunks
+            }
+        };
+    });
+}
+
+return processItems(items);
